@@ -1,0 +1,374 @@
+---
+title: "ADS 506 Final Team Project"
+author: "Gagandeep Singh, Francisco Hernandez and Saloni Barhate"
+date: "2025-12-03"
+output: pdf_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# Core tidyverse tools used in the assignment
+library(dplyr)        # %>%, count(), mutate(), slice_head(), slice_tail()
+library(ggplot2)      # plotting for EDA
+
+# Required for percent_format() in bivariate plots
+library(scales)
+
+# FPP3 Time Series Framework (tsibble, fable, feasts)
+library(fpp3)
+
+# Neural Networks + NNETAR inside fable
+library(fable.prophet)  
+library(tictoc)         # used for timing model fitting
+
+```
+
+
+
+```{r}
+# Read the CSV file into an R data frame
+births_df <- read.csv("daily-total-female-births-CA.csv") %>%
+  mutate(
+    date = as.Date(date, format = "%Y-%m-%d")  # parse the date string
+  ) %>%
+  rename(
+    Date   = date,
+    Births = births
+  )
+
+# Quick check
+head(births_df)
+str(births_df)
+
+
+
+```
+
+### Initial Data Overview and Data Quality Check
+
+```{r }
+# Get the number of rows and columns
+print("Dimensions of the data frame:")
+dim(births_df)
+
+# List all column names
+print("Column names:")
+names(births_df)
+
+# Get a statistical summary of each column
+print("Statistical summary of each column:")
+summary(births_df)
+
+# Display the structure of the data frame (already done in previous cell, but re-confirming as per instructions)
+print("Structure of the data frame:")
+print(str(births_df))
+
+```
+### Handle Missing Values
+
+
+```{r }
+# 1. Calculate total number of missing values (NA) for each column
+missing_values_count <- colSums(is.na(births_df))
+missing_values_count
+
+# Percentage of missing values
+
+missing_values_percentage <- (missing_values_count / nrow(births_df)) * 100
+data.frame(
+Column = names(missing_values_count),
+NACount = missing_values_count,
+NAPercentage = missing_values_percentage
+)
+
+```
+
+### Identify and Address Outliers
+
+```{r }
+
+# Histogram of daily births
+
+ggplot(births_df, aes(x = Births)) +
+geom_histogram(bins = 20, fill = "steelblue", color = "white") +
+labs(
+title = "Distribution of Daily Female Births (California, 1959)",
+x = "Number of births",
+y = "Count of days"
+) +
+theme_minimal()
+
+# Boxplot to check for outliers
+
+ggplot(births_df, aes(y = Births)) +
+geom_boxplot(fill = "steelblue") +
+labs(
+title = "Boxplot of Daily Female Births",
+y = "Number of births"
+) +
+theme_minimal()
+
+```
+
+### Data Type Conversion and Transformation
+
+```{r }
+
+# Ensure Date is a proper Date class
+
+births_df$Date <- as.Date(births_df$Date)
+
+# Convert to tsibble
+
+births_ts <- births_df %>%
+as_tsibble(index = Date)
+
+births_ts %>% head()
+
+# Plot the time series
+
+autoplot(births_ts,  Births) +
+labs(
+title = "Daily Female Births in California (1959)",
+x = "Date",
+y = "Number of births"
+) +
+theme_minimal()
+
+births_ts %>%
+model(STL(Births ~ season(window = 7))) %>%
+components() %>%
+autoplot() +
+labs(
+title = "STL Decomposition of Daily Female Births",
+x = "Date"
+)
+
+```
+
+## Univariate Exploration
+
+
+```{r }
+## Univariate Exploration
+
+#----------------------------------------------------------
+# Distribution of daily births
+#----------------------------------------------------------
+births_df %>%
+  ggplot(aes(x = Births)) +
+  geom_histogram(bins = 20, fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribution of Daily Female Births (California, 1959)",
+    x = "Number of births per day",
+    y = "Count of days"
+  ) +
+  theme_minimal()
+
+#----------------------------------------------------------
+# Boxplot for detecting potential outliers
+#----------------------------------------------------------
+births_df %>%
+  ggplot(aes(y = Births)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(
+    title = "Boxplot of Daily Female Births (Outlier Check)",
+    y = "Number of births"
+  ) +
+  theme_minimal()
+
+#----------------------------------------------------------
+# Time plot before creating tsibble (raw form)
+#----------------------------------------------------------
+ggplot(births_df, aes(x = Date, y = Births)) +
+  geom_line(color = "steelblue") +
+  labs(
+    title = "Daily Female Births Over Time (1959)",
+    x = "Date",
+    y = "Number of births"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+## Bivariate Exploration
+
+```{r }
+## Bivariate Exploration
+
+#----------------------------------------------------------
+# Births over time (line plot)
+#----------------------------------------------------------
+ggplot(births_df, aes(x = Date, y = Births)) +
+  geom_line(color = "steelblue") +
+  labs(
+    title = "Daily Female Births Over Time (1959)",
+    x = "Date",
+    y = "Number of Births"
+  ) +
+  theme_minimal()
+
+#----------------------------------------------------------
+# Births with smoothing line (reveals underlying pattern)
+#----------------------------------------------------------
+ggplot(births_df, aes(x = Date, y = Births)) +
+  geom_line(color = "lightgray") +
+  geom_smooth(method = "loess", se = FALSE, color = "steelblue") +
+  labs(
+    title = "Smoothed Trend in Daily Female Births",
+    x = "Date",
+    y = "Number of Births"
+  ) +
+  theme_minimal()
+
+#----------------------------------------------------------
+# 7-day rolling mean (common in time series EDA)
+#----------------------------------------------------------
+births_df %>%
+  mutate(Rolling7 = slider::slide_dbl(Births, mean, .before = 6, .complete = TRUE)) %>%
+  ggplot(aes(x = Date)) +
+  geom_line(aes(y = Births), color = "gray80") +
+  geom_line(aes(y = Rolling7), color = "steelblue", size = 1) +
+  labs(
+    title = "7-Day Rolling Average of Daily Female Births",
+    x = "Date",
+    y = "Births"
+  ) +
+  theme_minimal()
+
+#----------------------------------------------------------
+# Autocorrelation and partial autocorrelation (time-based relationship)
+#----------------------------------------------------------
+births_ts %>%
+  ACF(Births) %>%
+  autoplot() +
+  labs(title = "Autocorrelation of Daily Births", y = "ACF")
+
+births_ts %>%
+  PACF(Births) %>%
+  autoplot() +
+  labs(title = "Partial Autocorrelation of Daily Births", y = "PACF")
+
+
+```
+
+### Outlier and Data Quality Checks
+
+```{r }
+summary(births_df) 
+
+# Check for remaining NA values
+colSums(is.na(births_df))
+
+#Check duplicates
+sum(duplicated(births_df))
+```
+
+### Train / validation split
+
+
+```{r mental_split, message=FALSE, warning=FALSE}
+train_end <- as.Date("1959-10-31")
+
+births_train <- births_ts %>%
+filter(Date <= train_end)
+
+births_valid <- births_ts %>%
+filter(Date > train_end)
+
+cat("Number of observations TOTAL:      ", nrow(births_ts), "\n")
+cat("Number of observations in TRAIN:   ", nrow(births_train), "\n")
+cat("Number of observations in VALIDATION:", nrow(births_valid), "\n")
+
+
+```
+
+
+### Fit ARIMA, ETS, and NNETAR to TreatmentRate
+
+```{r mental_models}
+#========================================================
+
+# Fit ARIMA, ETS, NNETAR on Births (training data)
+
+#========================================================
+
+tic("Fit ARIMA + ETS + NNETAR (Births)")
+
+births_models <- births_train %>%
+model(
+ARIMA  = ARIMA(Births),
+ETS    = ETS(Births),
+NNETAR = NNETAR(Births, repeats = 20)
+)
+
+toc()
+
+births_models
+
+births_models %>% select(ARIMA)  %>% report()
+births_models %>% select(ETS)    %>% report()
+births_models %>% select(NNETAR) %>% report()
+
+```
+
+```{r Forecast_models}
+
+# Forecast horizon = number of validation observations
+
+h_valid <- nrow(births_valid)
+
+# Generate forecasts from all three models
+
+fc_valid <- births_models %>%
+forecast(h = h_valid)
+
+# Compute accuracy on held-out validation data
+
+births_acc <- fc_valid %>%
+accuracy(births_valid) %>%
+select(.model, RMSE, MAE, MAPE) %>%
+arrange(RMSE)
+
+births_acc
+
+knitr::kable(
+births_acc,
+digits = 4,
+caption = "Validation Accuracy for Daily Female Births (ARIMA, ETS, NNETAR)"
+)
+
+
+```
+
+
+```{r mental_plot_valid}
+fc_valid %>%
+mutate(
+Model = case_when(
+.model == "ARIMA"   ~ "ARIMA(Births)",
+.model == "ETS"     ~ "ETS(Births)",
+.model == "NNETAR"  ~ "NNETAR(Births)"
+)
+) %>%
+autoplot(data = births_ts) +
+labs(
+title = "Daily Female Births: Forecasts vs Actual (Validation Period)",
+x = "Date",
+y = "Number of births"
+) +
+theme_minimal()
+
+
+
+```
+
+
+
+
+
+
+
